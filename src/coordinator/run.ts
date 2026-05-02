@@ -4,13 +4,18 @@ import { ContextStore } from "../context/store.js";
 import { isGitRepo } from "../context/git.js";
 import { loadConfig, type Config } from "./config.js";
 import type { Driver, DriverId } from "../drivers/types.js";
-import { join } from "node:path";
+import { MemoryStore } from "../memory/store.js";
+import { HashEmbedder } from "../memory/embeddings.js";
+import { join, basename } from "node:path";
 
 export type RunOptions = {
   unattended?: boolean;
   model?: string;
-  // Override which agent runs this task. Defaults to config.routing.plan.
   agent?: DriverId;
+  // How many prior memories to inject into the prompt as recall context.
+  // Set to 0 to skip the memory query entirely (useful for the very first
+  // task in a fresh project).
+  recall?: number;
 };
 
 export async function runTask(
@@ -25,13 +30,54 @@ export async function runTask(
   }
 
   const config = await loadConfig(cwd);
-  const store = new ContextStore(join(cwd, ".baton"));
+  const batonDir = join(cwd, ".baton");
+  const store = new ContextStore(batonDir);
 
+  // Open the memory store. Coordinator-side reads/writes go through this,
+  // so even if the agent CLIs aren't yet wired to the memory MCP they
+  // still benefit from prior context surfacing through the prompt.
+  const memory = await MemoryStore.open({
+    batonDir,
+    embedder:
+      process.env.BATON_TEST_HASH_EMBEDDER === "1"
+        ? new HashEmbedder(64)
+        : undefined,
+  });
+
+  const project = basename(cwd);
   const driverId: DriverId = opts.agent ?? config.routing.plan;
   const driver = makeDriver(driverId, config, opts);
 
+  // 1. Recall — pull relevant prior memories for this task.
+  const recall = opts.recall ?? 5;
+  let recallSection = "";
+  if (recall > 0 && memory.count({ project }) > 0) {
+    const hits = await memory.search(task, { limit: recall, project });
+    if (hits.length > 0) {
+      recallSection = [
+        "Relevant prior context (most-similar memories first):",
+        ...hits.map(
+          (h, i) =>
+            `${i + 1}. [${h.source || "?"} · ${h.createdAt}] ${h.text}`
+        ),
+      ].join("\n");
+    }
+  }
+
+  // 2. Materialize the recall section into the markdown context file so
+  //    the existing driver-side context-injection pipeline picks it up.
+  //    .baton/context.md is now a *derived view* — overwritten on every run
+  //    rather than appended.
+  const renderedContext = renderContextView({
+    task,
+    recall: recallSection,
+    project,
+  });
+  await store.writeContext(renderedContext);
+
   console.log(`[baton] task: ${task}`);
   console.log(`[baton] dispatching to: ${driver.id}`);
+  if (recallSection) console.log(`[baton] recalled ${recall} prior memories`);
 
   await driver.start({ cwd, contextFile: store.contextFile });
   await driver.send(task);
@@ -42,8 +88,25 @@ export async function runTask(
 
   await driver.stop();
 
+  // 3. Store the step as a memory so future runs can recall it.
+  const memoryText = renderStepMemory({
+    task,
+    agent: driver.id,
+    summary: result.stdout,
+    filesChanged: result.filesChanged,
+    exitCode: result.exitCode,
+  });
+  const persisted = await memory.add(memoryText, {
+    tags: ["step", driver.id, result.exitCode === 0 ? "ok" : "error"],
+    source: driver.id,
+    project,
+  });
+
+  // 4. Persist the per-step snapshot and append to the JSONL log. The
+  //    markdown context file is now ephemeral, so don't append to it; the
+  //    next run will regenerate it from the memory store.
   const snapshotPath = await store.writeSnapshot(
-    0,
+    persisted.id,
     driver.id,
     `# ${driver.id} step\n\n## prompt\n${task}\n\n## result\n${result.stdout}\n\n## stderr\n${result.stderr}\n`
   );
@@ -59,20 +122,7 @@ export async function runTask(
     resultPreview: result.stdout.slice(0, 240),
   });
 
-  await store.appendContext(
-    [
-      `## ${new Date().toISOString()} · ${driver.id}`,
-      "",
-      `**Task:** ${task}`,
-      "",
-      `**Exit code:** ${result.exitCode}`,
-      `**Duration:** ${durationMs}ms`,
-      `**Files changed:** ${result.filesChanged.length === 0 ? "none" : result.filesChanged.join(", ")}`,
-      "",
-      "**Summary:**",
-      result.stdout.slice(0, 1200) || "(no output)",
-    ].join("\n")
-  );
+  memory.close();
 
   console.log("");
   console.log(`[baton] done. exit=${result.exitCode} in ${durationMs}ms`);
@@ -82,9 +132,49 @@ export async function runTask(
   } else {
     console.log("[baton] no working-tree changes detected.");
   }
+  console.log(`[baton] memory:   id=${persisted.id} (project=${project})`);
   console.log(`[baton] log:      ${store.logFile}`);
-  console.log(`[baton] context:  ${store.contextFile}`);
   console.log(`[baton] snapshot: ${snapshotPath}`);
+}
+
+function renderContextView(args: {
+  task: string;
+  recall: string;
+  project: string;
+}): string {
+  return [
+    "# baton shared context",
+    "",
+    "_This file is a derived view, regenerated on every `baton run`. Source of truth is the memory store at .baton/memory.db._",
+    "",
+    `**Project:** ${args.project}`,
+    `**Current task:** ${args.task}`,
+    "",
+    args.recall ? `## Recall\n\n${args.recall}\n` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderStepMemory(args: {
+  task: string;
+  agent: string;
+  summary: string;
+  filesChanged: string[];
+  exitCode: number;
+}): string {
+  const files =
+    args.filesChanged.length === 0
+      ? "no files changed"
+      : args.filesChanged.join(", ");
+  const summaryLine = args.summary
+    ? args.summary.slice(0, 800).trim()
+    : "(no agent summary)";
+  return [
+    `[${args.agent}] ${args.task}`,
+    `→ exit ${args.exitCode}, files: ${files}`,
+    summaryLine,
+  ].join("\n");
 }
 
 function makeDriver(id: DriverId, config: Config, opts: RunOptions): Driver {
@@ -117,3 +207,4 @@ function makeDriver(id: DriverId, config: Config, opts: RunOptions): Driver {
   }
   throw new Error(`unknown agent: ${id}`);
 }
+
