@@ -22,16 +22,25 @@ program
   .description("Run a task across the configured agents.")
   .argument("<task>", "Plain-English task description")
   .option(
-    "--unattended",
-    "Skip permission prompts in the underlying CLIs (uses bypassPermissions). Required for fully non-interactive runs."
+    "--agent <id>",
+    "Which driver to dispatch to: claude | codex | cursor (defaults to config.routing.plan)"
   )
-  .option("--model <model>", "Override the model for this run (e.g. opus, sonnet)")
+  .option(
+    "--unattended",
+    "Skip permission prompts in the underlying CLIs (bypassPermissions). Required for fully non-interactive runs."
+  )
+  .option("--model <model>", "Override the model for this run")
   .action(
     async (
       task: string,
-      opts: { unattended?: boolean; model?: string }
+      opts: { agent?: string; unattended?: boolean; model?: string }
     ) => {
+      const agent = opts.agent as "claude" | "codex" | "cursor" | undefined;
+      if (agent && !["claude", "codex", "cursor"].includes(agent)) {
+        throw new Error(`invalid --agent: ${agent}`);
+      }
       await runTask(process.cwd(), task, {
+        agent,
         unattended: opts.unattended,
         model: opts.model,
       });

@@ -1,12 +1,16 @@
 import { ClaudeDriver } from "../drivers/claude.js";
+import { CodexDriver } from "../drivers/codex.js";
 import { ContextStore } from "../context/store.js";
 import { isGitRepo } from "../context/git.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
+import type { Driver, DriverId } from "../drivers/types.js";
 import { join } from "node:path";
 
 export type RunOptions = {
   unattended?: boolean;
   model?: string;
+  // Override which agent runs this task. Defaults to config.routing.plan.
+  agent?: DriverId;
 };
 
 export async function runTask(
@@ -23,27 +27,8 @@ export async function runTask(
   const config = await loadConfig(cwd);
   const store = new ContextStore(join(cwd, ".baton"));
 
-  // Phase 1 ships the single-agent flow: the planning agent (Claude by
-  // default) handles the entire task in one invocation. The plan/implement/
-  // review split lands in Phase 2 alongside CodexDriver.
-  const driverId = config.routing.plan;
-  if (driverId !== "claude") {
-    throw new Error(
-      `Phase 1 only supports the claude driver, got "${driverId}". Phase 2 will introduce the codex driver and routing.`
-    );
-  }
-
-  const claudeCfg = config.agents.claude;
-  if (!claudeCfg.enabled) {
-    throw new Error("claude is disabled in config; nothing to run.");
-  }
-
-  const driver = new ClaudeDriver({
-    command: claudeCfg.command,
-    extraArgs: claudeCfg.extraArgs,
-    unattended: opts.unattended ?? false,
-    model: opts.model,
-  });
+  const driverId: DriverId = opts.agent ?? config.routing.plan;
+  const driver = makeDriver(driverId, config, opts);
 
   console.log(`[baton] task: ${task}`);
   console.log(`[baton] dispatching to: ${driver.id}`);
@@ -57,7 +42,6 @@ export async function runTask(
 
   await driver.stop();
 
-  // Persist result.
   const snapshotPath = await store.writeSnapshot(
     0,
     driver.id,
@@ -101,4 +85,35 @@ export async function runTask(
   console.log(`[baton] log:      ${store.logFile}`);
   console.log(`[baton] context:  ${store.contextFile}`);
   console.log(`[baton] snapshot: ${snapshotPath}`);
+}
+
+function makeDriver(id: DriverId, config: Config, opts: RunOptions): Driver {
+  if (id === "claude") {
+    const cfg = config.agents.claude;
+    if (!cfg.enabled)
+      throw new Error("claude is disabled in .baton/config.json");
+    return new ClaudeDriver({
+      command: cfg.command,
+      extraArgs: cfg.extraArgs,
+      unattended: opts.unattended ?? false,
+      model: opts.model,
+    });
+  }
+  if (id === "codex") {
+    const cfg = config.agents.codex;
+    if (!cfg.enabled)
+      throw new Error("codex is disabled in .baton/config.json");
+    return new CodexDriver({
+      command: cfg.command,
+      extraArgs: cfg.extraArgs,
+      unattended: opts.unattended ?? false,
+      model: opts.model,
+    });
+  }
+  if (id === "cursor") {
+    throw new Error(
+      "cursor driver is not implemented yet. Roadmap Phase 3."
+    );
+  }
+  throw new Error(`unknown agent: ${id}`);
 }

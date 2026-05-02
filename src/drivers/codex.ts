@@ -1,24 +1,135 @@
+import { execa, type ResultPromise } from "execa";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { changedSince, snapshot } from "../context/git.js";
 import type { Driver, DriverContext, DriverResult } from "./types.js";
 
-// TODO Phase 2: implement. Codex CLI's invocation surface is similar in
-// spirit to Claude's; main difference will be the context-injection format
-// (Codex reads AGENTS.md, not CLAUDE.md).
+export type CodexDriverOptions = {
+  command?: string;
+  extraArgs?: string[];
+  model?: string;
+  // unattended uses --dangerously-bypass-approvals-and-sandbox so codex can
+  // write/edit without prompting. Caller must opt in.
+  unattended: boolean;
+};
+
 export class CodexDriver implements Driver {
   readonly id = "codex" as const;
 
-  async start(_ctx: DriverContext): Promise<void> {
-    throw new Error("CodexDriver.start: not implemented");
+  private ctx: DriverContext | null = null;
+  private inflight: ResultPromise | null = null;
+  private lastPrompt: string | null = null;
+
+  constructor(private readonly opts: CodexDriverOptions) {}
+
+  async start(ctx: DriverContext): Promise<void> {
+    this.ctx = ctx;
   }
 
-  async send(_prompt: string): Promise<void> {
-    throw new Error("CodexDriver.send: not implemented");
+  async send(prompt: string): Promise<void> {
+    this.lastPrompt = prompt;
   }
 
   async awaitDone(): Promise<DriverResult> {
-    throw new Error("CodexDriver.awaitDone: not implemented");
+    if (!this.ctx) throw new Error("CodexDriver: start() not called");
+    if (this.lastPrompt == null) throw new Error("CodexDriver: send() not called");
+
+    const cwd = this.ctx.cwd;
+    const before = await snapshot(cwd);
+
+    const sharedContext = await readContextSafe(this.ctx.contextFile);
+    const fullPrompt = buildPrompt(sharedContext, this.lastPrompt);
+
+    // Codex writes the last assistant message to a file when -o is set.
+    // Cleaner than parsing JSONL events.
+    const tmp = await mkdtemp(join(tmpdir(), "baton-codex-"));
+    const outFile = join(tmp, "last.txt");
+
+    const args: string[] = [
+      "exec",
+      "--skip-git-repo-check",
+      "-C",
+      cwd,
+      "-o",
+      outFile,
+      ...(this.opts.unattended
+        ? ["--dangerously-bypass-approvals-and-sandbox"]
+        : ["-s", "workspace-write"]),
+      ...(this.opts.model ? ["-m", this.opts.model] : []),
+      ...(this.opts.extraArgs ?? []),
+      fullPrompt,
+    ];
+
+    this.inflight = execa(this.opts.command ?? "codex", args, {
+      cwd,
+      reject: false,
+      maxBuffer: 50 * 1024 * 1024,
+    });
+
+    const result = await this.inflight;
+    this.inflight = null;
+    this.lastPrompt = null;
+
+    let assistantText = await readFileSafe(outFile);
+    if (!assistantText) assistantText = stringify(result.stdout);
+
+    // Best-effort cleanup of the tmp dir; don't fail the run if rm fails.
+    rm(tmp, { recursive: true, force: true }).catch(() => {});
+
+    const changed = await changedSince(cwd, before);
+
+    return {
+      exitCode: typeof result.exitCode === "number" ? result.exitCode : 1,
+      stdout: assistantText,
+      stderr: stringify(result.stderr),
+      filesChanged: changed.map((c) => c.path),
+    };
   }
 
   async stop(): Promise<void> {
-    throw new Error("CodexDriver.stop: not implemented");
+    if (this.inflight) {
+      this.inflight.kill("SIGTERM");
+      this.inflight = null;
+    }
   }
+}
+
+function stringify(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v == null) return "";
+  if (v instanceof Uint8Array) return Buffer.from(v).toString("utf8");
+  if (Array.isArray(v)) return v.map((x) => stringify(x)).join("");
+  return String(v);
+}
+
+async function readContextSafe(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function readFileSafe(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function buildPrompt(sharedContext: string, userPrompt: string): string {
+  if (!sharedContext.trim()) return userPrompt;
+  return [
+    "You are one of several AI agents collaborating on a single task via baton.",
+    "The shared running context is below. Use it; do not repeat it back.",
+    "",
+    "<baton-context>",
+    sharedContext.trim(),
+    "</baton-context>",
+    "",
+    "Your turn:",
+    userPrompt,
+  ].join("\n");
 }
