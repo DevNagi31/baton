@@ -1,5 +1,6 @@
 import { ClaudeDriver } from "../drivers/claude.js";
 import { CodexDriver } from "../drivers/codex.js";
+import { CursorDriver } from "../drivers/cursor.js";
 import { ContextStore } from "../context/store.js";
 import { isGitRepo } from "../context/git.js";
 import { loadConfig, type Config } from "./config.js";
@@ -201,9 +202,19 @@ function makeDriver(id: DriverId, config: Config, opts: RunOptions): Driver {
     });
   }
   if (id === "cursor") {
-    throw new Error(
-      "cursor driver is not implemented yet. Roadmap Phase 3."
-    );
+    const cfg = config.agents.cursor;
+    if (!cfg.enabled)
+      throw new Error(
+        "cursor is disabled in .baton/config.json (set agents.cursor.enabled to true)"
+      );
+    return new CursorDriver({
+      command: cfg.command,
+      extraArgs: cfg.extraArgs,
+      unattended: opts.unattended ?? false,
+      // Free-tier Cursor only allows "auto"; paid tiers can override via
+      // --model. Default to auto here so the most common case works.
+      model: opts.model ?? "auto",
+    });
   }
   throw new Error(`unknown agent: ${id}`);
 }

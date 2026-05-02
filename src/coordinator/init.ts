@@ -6,7 +6,7 @@ const DEFAULT_CONFIG = {
   agents: {
     claude: { command: "claude", enabled: true },
     codex: { command: "codex", enabled: true },
-    cursor: { command: "agent", enabled: false },
+    cursor: { command: "agent", enabled: true },
   },
   routing: {
     plan: "claude",
