@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { join } from "node:path";
 import { runTask } from "../coordinator/run.js";
 import { initProject } from "../coordinator/init.js";
+import { startMemoryMcpServer } from "../memory/mcp-server.js";
 
 const program = new Command();
 
@@ -46,6 +48,24 @@ program
       });
     }
   );
+
+program
+  .command("mcp")
+  .description(
+    "Run the baton-memory MCP server on stdio. Connect any MCP-aware client (Claude Code, Cursor, Codex) to this process for shared semantic memory."
+  )
+  .option(
+    "--baton-dir <path>",
+    "Directory holding memory.db (defaults to ./.baton)"
+  )
+  .action(async (opts: { batonDir?: string }) => {
+    const batonDir = opts.batonDir ?? join(process.cwd(), ".baton");
+    // Note: log to stderr only — stdout is the MCP transport channel.
+    console.error(`[baton mcp] starting memory server at ${batonDir}`);
+    await startMemoryMcpServer({ batonDir });
+    // Keep the process alive until the transport closes.
+    await new Promise<void>(() => {});
+  });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
