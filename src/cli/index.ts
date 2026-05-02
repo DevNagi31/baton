@@ -21,11 +21,24 @@ program
   .command("run")
   .description("Run a task across the configured agents.")
   .argument("<task>", "Plain-English task description")
-  .action(async (task: string) => {
-    await runTask(process.cwd(), task);
-  });
+  .option(
+    "--unattended",
+    "Skip permission prompts in the underlying CLIs (uses bypassPermissions). Required for fully non-interactive runs."
+  )
+  .option("--model <model>", "Override the model for this run (e.g. opus, sonnet)")
+  .action(
+    async (
+      task: string,
+      opts: { unattended?: boolean; model?: string }
+    ) => {
+      await runTask(process.cwd(), task, {
+        unattended: opts.unattended,
+        model: opts.model,
+      });
+    }
+  );
 
 program.parseAsync(process.argv).catch((err) => {
-  console.error(err);
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });
