@@ -61,9 +61,15 @@ export class CodexDriver implements Driver {
       fullPrompt,
     ];
 
+    // Codex reads stdin for an additional prompt block when stdin is a
+    // pipe. execa's default of an open pipe with no writes means codex
+    // hangs forever waiting for that block. Close stdin immediately by
+    // passing input: "" so codex sees EOF and proceeds with just the
+    // positional prompt.
     this.inflight = execa(this.opts.command ?? "codex", args, {
       cwd,
       reject: false,
+      input: "",
       maxBuffer: 50 * 1024 * 1024,
     });
 

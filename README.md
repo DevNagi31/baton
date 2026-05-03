@@ -204,20 +204,23 @@ the Codex live test, CURSOR_AGENT_LIVE=1 for the Cursor live test).
 
 ### Verified live cross-vendor handoff
 
-Run 1: `baton run --agent claude "Create shared.txt with: alpha-from-claude"`
-→ Claude creates the file. Step persisted to memory.
+All three drivers exercised end-to-end against real CLIs in a single
+trifecta.txt-creation flow:
 
-Run 2: `baton run --agent cursor "Append: beta-from-cursor to shared.txt
-(the file the previous agent created)"`
-→ Cursor recalls the prior memory, identifies the file, appends cleanly.
-
-Final `shared.txt`:
 ```
+$ baton run --agent claude "Create trifecta.txt with: alpha-from-claude"
+$ baton run --agent codex  "Append: beta-from-codex to the file the previous agent created"
+$ baton run --agent cursor "Append: gamma-from-cursor to the file the previous agents have been editing"
+
+$ cat trifecta.txt
 alpha-from-claude
-beta-from-cursor
+beta-from-codex
+gamma-from-cursor
 ```
 
-Two different vendors. One shared brain. No restated context.
+None of the follow-up prompts mention the filename. Each agent identified
+the target file from the previous agent's memory entry. Three different
+vendors, one shared brain, no restated context.
 
 ### First real benchmark numbers
 
@@ -239,14 +242,14 @@ their own access requirements:
 
 | CLI           | Access required                | What baton does                       |
 | ------------- | ------------------------------ | ------------------------------------- |
-| Claude Code   | Claude Pro or API key          | Spawns `claude -p` non-interactively  |
-| Cursor agent  | Free tier works (capped)       | Spawns `agent` non-interactively      |
-| Codex CLI     | ChatGPT Plus / Pro or OpenAI API | Spawns `codex exec` non-interactively |
+| Claude Code   | Claude Pro or Anthropic API key | Spawns `claude -p` non-interactively  |
+| Cursor agent  | Free tier works (capped, `--model auto`) | Spawns `agent --print` non-interactively |
+| Codex CLI     | Free ChatGPT account works (auth via `codex login`) | Spawns `codex exec` non-interactively |
 
 **You can run baton with whatever subset of the three CLIs you have access
-to.** The Codex driver is implemented and tested but its end-to-end
-integration test is gated behind an `OPENAI_API_KEY` environment variable in
-CI — if you don't have one, the unit tests still run.
+to.** The Codex live integration test is gated behind an `OPENAI_API_KEY`
+environment variable in CI; the Cursor live test on `CURSOR_AGENT_LIVE=1`.
+Unit tests run regardless.
 
 The memory layer is fully free: sqlite for storage, transformers.js with
 all-MiniLM-L6-v2 for embeddings (~22MB, runs locally, no API calls).

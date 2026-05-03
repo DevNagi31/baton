@@ -35,6 +35,17 @@ All notable changes to baton. Format follows [Keep a Changelog](https://keepacha
 - Eager import of `@modelcontextprotocol/sdk` was detaching the parent
   process's stdin and causing `claude -p` to spawn with no input. The
   SDK is now lazy-loaded only inside the `mcp` action.
+- CodexDriver was hanging forever when run through baton: codex reads
+  stdin for an additional `<stdin>` prompt block, and execa's default
+  open-pipe-with-no-writes meant codex waited for input that never came.
+  CodexDriver now passes `input: ""` so codex sees EOF immediately and
+  proceeds with just the positional prompt.
+
+### Verified
+- Three-vendor handoff with all three real CLIs: Claude → Codex → Cursor,
+  each recalling the prior agent's memory and identifying the target
+  file from context alone (no filename in the follow-up prompts). Final
+  trifecta.txt contains one line per vendor.
 
 ## Phase 3 — CursorDriver
 
