@@ -10,6 +10,47 @@ single cohesive result.
 
 ---
 
+## Quickstart
+
+```bash
+# Install
+git clone https://github.com/DevNagi31/baton
+cd baton
+npm install
+npm run build
+
+# Initialize a baton workspace inside a git repo
+cd /path/to/your/repo
+node /path/to/baton/dist/cli/index.js init
+
+# Run a task with whichever CLI you have access to
+node /path/to/baton/dist/cli/index.js run \
+  "Add a /health endpoint to the express app" \
+  --agent claude --unattended
+
+# Or run a benchmark across multiple agents
+node /path/to/baton/dist/cli/index.js bench \
+  --spec /path/to/baton/examples/bench-mini.json \
+  --agents claude,cursor --unattended
+```
+
+The `--unattended` flag passes through `bypassPermissions` (claude),
+`workspace-write` sandbox bypass (codex), or `--force` (cursor) so the
+underlying CLI doesn't sit on a permission prompt. Use it carefully:
+it's the equivalent of telling the agent "you have full edit power."
+
+baton can also run as a standalone MCP server for direct client connections
+without the orchestrator:
+
+```bash
+node /path/to/baton/dist/cli/index.js mcp --baton-dir /path/to/.baton
+```
+
+Wire that command into your Claude Code or Cursor MCP config to share
+semantic memory across sessions even outside `baton run`.
+
+---
+
 ## The problem
 
 If you use multiple AI coding CLIs (Claude Code, Cursor agent, Codex CLI)
@@ -119,19 +160,53 @@ rule set, then collects telemetry to refine it empirically.
 
 These will be replaced with empirical routing once benchmarking is in place.
 
-## What works right now (Phase 1 shipped)
+## What works right now
 
-- `baton init` — scaffolds a `.baton/` directory with config and context
-- `baton run "<task>"` — invokes Claude Code via `claude -p` with the task
-  plus accumulated shared context, captures the working-tree diff via git,
-  logs results, updates the context store
-- `--unattended` flag — passes `--permission-mode bypassPermissions` for
-  non-interactive runs
-- 11 tests passing across config validation, git diff capture, and the
-  context store
+Phases 1–4 are shipped. The full pipeline runs end-to-end:
 
-The current "shared context" is a markdown file. Phase 2 replaces it with
-the MCP memory server while preserving the existing CLI surface.
+- `baton init` — scaffold a `.baton/` directory with config, context, and
+  memory.db
+- `baton run "<task>" [--agent claude|codex|cursor] [--unattended]` —
+  recall relevant prior memories, dispatch to the chosen agent, capture
+  the working-tree diff via git, persist the step as a memory
+- `baton mcp` — run the memory MCP server on stdio so any MCP-aware
+  client (Claude Code, Cursor, Codex) can read/write the same memory
+- `baton bench --spec <path> --agents claude,cursor [--unattended]` —
+  run a benchmark spec across multiple agents, capture pass rate, mean
+  duration, and mean files-changed per agent into JSONL
+
+50 tests, 48 passing locally; 2 gated on credentials (OPENAI_API_KEY for
+the Codex live test, CURSOR_AGENT_LIVE=1 for the Cursor live test).
+
+### Verified live cross-vendor handoff
+
+Run 1: `baton run --agent claude "Create shared.txt with: alpha-from-claude"`
+→ Claude creates the file. Step persisted to memory.
+
+Run 2: `baton run --agent cursor "Append: beta-from-cursor to shared.txt
+(the file the previous agent created)"`
+→ Cursor recalls the prior memory, identifies the file, appends cleanly.
+
+Final `shared.txt`:
+```
+alpha-from-claude
+beta-from-cursor
+```
+
+Two different vendors. One shared brain. No restated context.
+
+### First real benchmark numbers
+
+`examples/bench-mini.json` on Claude + Cursor:
+
+| Agent  | Pass rate | Mean duration | Mean files changed |
+| ------ | --------- | ------------- | ------------------ |
+| claude | 2/2 (100%) | 11.7s        | 1.0                |
+| cursor | 2/2 (100%) | 8.8s         | 1.0                |
+
+Both agents pass; Cursor is ~25% faster on these "create file" tasks.
+A bigger spec will give a meaningful per-category breakdown for the
+empirical routing work.
 
 ## Costs and access requirements
 
@@ -158,13 +233,15 @@ See [ROADMAP.md](./ROADMAP.md) for full detail. Summary:
 
 - **Phase 1 — Foundation** ✅ shipped: ClaudeDriver, single-agent run flow,
   shared markdown context, working tree diff capture, tests.
-- **Phase 2 — Memory + multi-agent**: split into 2a (CodexDriver), 2b
-  (memory MCP server with sqlite + transformers.js), 2c (drivers connect to
-  the memory server, markdown context retired).
-- **Phase 3 — Cursor**: CursorDriver. The unknown unknowns live here.
-- **Phase 4 — Empirical routing**: telemetry, benchmark suite, learned
-  routing weights, public benchmark dataset.
-- **Phase 5 — Polish**: docs, examples, blog post, npm publish.
+- **Phase 2 — Memory + multi-agent** ✅ shipped: CodexDriver, semantic
+  memory MCP server (sqlite + transformers.js), drivers run through memory.
+- **Phase 3 — Cursor** ✅ shipped: CursorDriver, three-CLI orchestration
+  thesis verified end-to-end with cross-vendor handoff.
+- **Phase 4 — Empirical routing** ✅ shipped: `baton bench`, evaluators,
+  per-agent telemetry, JSONL output. Routing-weight derivation deferred
+  until a larger benchmark exists.
+- **Phase 5 — Polish** in progress: install instructions, examples, CI,
+  blog post, npm publish.
 
 ## Hard problems we already know about
 
