@@ -1,0 +1,28 @@
+{
+  "name": "mini",
+  "description": "A 2-task smoke benchmark. Cheap to run on a free-tier stack.",
+  "tasks": [
+    {
+      "id": "create-file",
+      "category": "create",
+      "prompt": "Create a file named hello.txt containing exactly the line: hello-from-baton",
+      "evaluators": [
+        { "type": "exit_zero" },
+        { "type": "file_exists", "path": "hello.txt" },
+        { "type": "file_contains", "path": "hello.txt", "text": "hello-from-baton" }
+      ]
+    },
+    {
+      "id": "create-multi-line",
+      "category": "create",
+      "prompt": "Create a file named numbers.txt containing exactly three lines: one, two, three (one per line, no trailing blank line)",
+      "evaluators": [
+        { "type": "exit_zero" },
+        { "type": "file_exists", "path": "numbers.txt" },
+        { "type": "file_contains", "path": "numbers.txt", "text": "one" },
+        { "type": "file_contains", "path": "numbers.txt", "text": "two" },
+        { "type": "file_contains", "path": "numbers.txt", "text": "three" }
+      ]
+    }
+  ]
+}

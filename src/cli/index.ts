@@ -65,6 +65,80 @@ program
   );
 
 program
+  .command("bench")
+  .description(
+    "Run a benchmark spec across one or more agents. Each (agent, task) runs in an isolated scratch repo so agents can't pollute each other."
+  )
+  .requiredOption(
+    "--spec <path>",
+    "Path to a benchmark spec JSON (see examples/bench-mini.json)"
+  )
+  .option(
+    "--agents <list>",
+    "Comma-separated list of agents to run: claude,codex,cursor (default: claude)",
+    "claude"
+  )
+  .option(
+    "--out <path>",
+    "Where to write the JSONL results (default: .baton/bench/<timestamp>.jsonl)"
+  )
+  .option(
+    "--unattended",
+    "Pass unattended mode through to each driver. Required for non-interactive bench runs.",
+    false
+  )
+  .option("--model <model>", "Override the model for every run")
+  .action(
+    async (opts: {
+      spec: string;
+      agents: string;
+      out?: string;
+      unattended: boolean;
+      model?: string;
+    }) => {
+      const { loadSpec } = await import("../bench/spec.js");
+      const { runSpec, summarize } = await import("../bench/runner.js");
+      const ids = opts.agents
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const id of ids) {
+        if (!["claude", "codex", "cursor"].includes(id)) {
+          throw new Error(`invalid agent in --agents: ${id}`);
+        }
+      }
+      const spec = await loadSpec(opts.spec);
+      const out =
+        opts.out ??
+        join(
+          process.cwd(),
+          ".baton",
+          "bench",
+          `${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`
+        );
+      console.log(
+        `[baton bench] ${spec.name} · ${spec.tasks.length} tasks × ${ids.length} agents = ${spec.tasks.length * ids.length} runs`
+      );
+      const results = await runSpec(spec, {
+        agents: ids as Array<"claude" | "codex" | "cursor">,
+        unattended: opts.unattended,
+        outputPath: out,
+        model: opts.model,
+        onProgress: (s) => console.log(`  ${s}`),
+      });
+      const summary = summarize(results);
+      console.log("");
+      console.log("[baton bench] summary:");
+      for (const [agent, m] of Object.entries(summary.byAgent)) {
+        console.log(
+          `  ${agent.padEnd(8)} pass ${m.passes}/${m.runs} (${(m.passRate * 100).toFixed(0)}%)  mean ${(m.meanDurationMs / 1000).toFixed(1)}s  mean ${m.meanFilesChanged.toFixed(1)} files`
+        );
+      }
+      console.log(`[baton bench] results: ${out}`);
+    }
+  );
+
+program
   .command("mcp")
   .description(
     "Run the baton-memory MCP server on stdio. Connect any MCP-aware client (Claude Code, Cursor, Codex) to this process for shared semantic memory."
