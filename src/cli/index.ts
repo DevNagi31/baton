@@ -65,6 +65,101 @@ program
   );
 
 program
+  .command("remember")
+  .description(
+    "Save a freeform note to the memory store. Use this whenever something is worth remembering across sessions, terminals, or projects."
+  )
+  .argument("<note>", "Note text")
+  .option(
+    "--tags <list>",
+    "Comma-separated tags to attach to the memory",
+    (v) => v.split(",").map((t) => t.trim()).filter(Boolean)
+  )
+  .option(
+    "--project <name>",
+    "Project scope (defaults to the basename of the current directory)"
+  )
+  .action(
+    async (
+      note: string,
+      opts: { tags?: string[]; project?: string }
+    ) => {
+      const { rememberNote } = await import("../coordinator/recall.js");
+      const m = await rememberNote(process.cwd(), note, {
+        tags: opts.tags,
+        project: opts.project,
+      });
+      console.log(`[baton] saved memory id=${m.id} project=${m.project ?? "∅"}`);
+    }
+  );
+
+program
+  .command("recall")
+  .description(
+    "Browse the memory store. Without a query, lists recent entries; with a query, ranks by semantic similarity."
+  )
+  .argument("[query]", "Optional search query")
+  .option(
+    "--project <name>",
+    "Restrict results to one project scope (default: across all projects)"
+  )
+  .option("--limit <n>", "Max results", (v) => parseInt(v, 10), 10)
+  .action(
+    async (
+      query: string | undefined,
+      opts: { project?: string; limit: number }
+    ) => {
+      const { recallMemories } = await import("../coordinator/recall.js");
+      const items = await recallMemories(process.cwd(), {
+        query,
+        project: opts.project,
+        limit: opts.limit,
+      });
+      if (items.length === 0) {
+        console.log("[baton] no memories found.");
+        return;
+      }
+      for (const m of items) {
+        const proj = m.project ?? "∅";
+        const tags = m.tags.length ? ` tags=${m.tags.join(",")}` : "";
+        const score =
+          "score" in m
+            ? ` score=${(m as { score: number }).score.toFixed(3)}`
+            : "";
+        console.log(
+          `\n#${m.id} [${m.createdAt}] ${m.source || "?"} project=${proj}${tags}${score}`
+        );
+        console.log(m.text);
+      }
+    }
+  );
+
+program
+  .command("continue")
+  .description(
+    "Generate a continuation primer from recent memories. Print it to stdout (or pipe into `claude --append-system-prompt -` to launch a session pre-loaded with prior context). Solves the 'session doesn't follow me across cwd' problem."
+  )
+  .option(
+    "--from <project>",
+    "Restrict to one project scope (default: across all projects)"
+  )
+  .option("--query <text>", "Search query (default: most recent activity)")
+  .option("--limit <n>", "How many memories to include", (v) => parseInt(v, 10), 10)
+  .action(
+    async (opts: { from?: string; query?: string; limit: number }) => {
+      const { buildContinuationPrimer } = await import(
+        "../coordinator/recall.js"
+      );
+      const primer = await buildContinuationPrimer(process.cwd(), {
+        fromProject: opts.from,
+        query: opts.query,
+        limit: opts.limit,
+      });
+      console.log(primer);
+    }
+  );
+
+program
   .command("bench")
   .description(
     "Run a benchmark spec across one or more agents. Each (agent, task) runs in an isolated scratch repo so agents can't pollute each other."

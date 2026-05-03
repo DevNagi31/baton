@@ -5,6 +5,16 @@ All notable changes to baton. Format follows [Keep a Changelog](https://keepacha
 ## [Unreleased]
 
 ### Added
+- Cross-cwd / cross-session resume: three new commands.
+  - `baton remember "<note>"` — save a checkpoint with optional --tags
+    and --project; defaults to source="manual", project=basename(cwd).
+  - `baton recall [query] [--project <name>] [--limit <n>]` — browse
+    memories; ranks by semantic similarity when a query is given,
+    reverse-chronological otherwise.
+  - `baton continue [--from <project>] [--query <text>] [--limit <n>]` —
+    builds a structured primer from recent memories suitable for pasting
+    into a fresh Claude Code or Cursor session, or piping into
+    `claude --append-system-prompt`.
 - `baton bench` runs benchmark specs across one or more agents in
   isolated scratch repos. Five evaluator types: file_exists,
   file_contains, file_equals, exit_zero, max_files_changed. Per-run

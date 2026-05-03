@@ -49,6 +49,30 @@ node /path/to/baton/dist/cli/index.js mcp --baton-dir /path/to/.baton
 Wire that command into your Claude Code or Cursor MCP config to share
 semantic memory across sessions even outside `baton run`.
 
+### Cross-cwd / cross-session resume
+
+Claude Code and Cursor scope conversation resume to the working directory
+you started in. Open a session somewhere else and you can't pick it up.
+baton closes that gap with three commands you can call from anywhere:
+
+```bash
+# Save a checkpoint at any time. Tags and project are optional.
+baton remember "decided to use sqlite over pgvector for the memory layer" \
+  --tags decision,architecture --project baton
+
+# Browse what you've saved. With a query, ranks by semantic similarity.
+baton recall "what database does this project use"
+
+# Build a primer of recent activity, ready to paste into a fresh session.
+baton continue --from baton
+
+# Or pipe directly into a new Claude Code session pre-loaded with the primer:
+baton continue --from baton | xargs -0 -I {} claude --append-system-prompt {}
+```
+
+Memory is keyed by project (default: basename of the cwd), so `baton recall
+--project foo` works from any directory. The same `memory.db` is consulted.
+
 ---
 
 ## The problem
