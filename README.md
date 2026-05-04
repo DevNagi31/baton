@@ -224,16 +224,21 @@ vendors, one shared brain, no restated context.
 
 ### First real benchmark numbers
 
-`examples/bench-mini.json` on Claude + Cursor:
+`examples/bench-mini.json` on all three agents (6 runs total in isolated
+scratch repos):
 
-| Agent  | Pass rate | Mean duration | Mean files changed |
-| ------ | --------- | ------------- | ------------------ |
-| claude | 2/2 (100%) | 11.7s        | 1.0                |
-| cursor | 2/2 (100%) | 8.8s         | 1.0                |
+| Agent  | Pass rate  | Mean duration | Mean files changed |
+| ------ | ---------- | ------------- | ------------------ |
+| claude | 2/2 (100%) | 8.1s          | 1.0                |
+| codex  | 2/2 (100%) | 9.8s          | 1.0                |
+| cursor | 2/2 (100%) | 15.8s         | 1.0                |
 
-Both agents pass; Cursor is ~25% faster on these "create file" tasks.
-A bigger spec will give a meaningful per-category breakdown for the
-empirical routing work.
+All three pass. **2-task samples are too small to draw conclusions** —
+the cursor mean swung between 8.8s and 21s across runs of the same task.
+Phase 6 needs a 50+ task suite for reliable numbers. The takeaway from
+the small bench is that all three agents complete simple file-creation
+tasks reliably; differentiated routing requires harder, more diverse
+tasks.
 
 ## Costs and access requirements
 
