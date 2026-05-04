@@ -73,15 +73,21 @@ export class CodexDriver implements Driver {
       maxBuffer: 50 * 1024 * 1024,
     });
 
-    const result = await this.inflight;
-    this.inflight = null;
-    this.lastPrompt = null;
+    let result;
+    try {
+      result = await this.inflight;
+    } finally {
+      this.inflight = null;
+      this.lastPrompt = null;
+    }
 
     let assistantText = await readFileSafe(outFile);
     if (!assistantText) assistantText = stringify(result.stdout);
 
-    // Best-effort cleanup of the tmp dir; don't fail the run if rm fails.
-    rm(tmp, { recursive: true, force: true }).catch(() => {});
+    // Synchronously await the tmp-dir cleanup so we don't race the parent
+    // process exiting and leak directories into /tmp. Best-effort on
+    // failure (a stale dir is preferable to crashing the run).
+    await rm(tmp, { recursive: true, force: true }).catch(() => {});
 
     const changed = await changedSince(cwd, before);
 

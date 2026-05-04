@@ -45,7 +45,21 @@ export async function runTask(
         ? new HashEmbedder(64)
         : undefined,
   });
+  try {
+    await runTaskInner(cwd, task, opts, config, store, memory);
+  } finally {
+    memory.close();
+  }
+}
 
+async function runTaskInner(
+  cwd: string,
+  task: string,
+  opts: RunOptions,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  store: ContextStore,
+  memory: MemoryStore
+): Promise<void> {
   const project = basename(cwd);
   const driverId: DriverId = opts.agent ?? config.routing.plan;
   const driver = makeDriver(driverId, config, opts);
@@ -123,8 +137,6 @@ export async function runTask(
     filesChanged: result.filesChanged,
     resultPreview: result.stdout.slice(0, 240),
   });
-
-  memory.close();
 
   console.log("");
   console.log(`[baton] done. exit=${result.exitCode} in ${durationMs}ms`);

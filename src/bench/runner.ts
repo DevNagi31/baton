@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, appendFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { execa } from "execa";
@@ -93,6 +93,11 @@ async function runOne(
   const failures = evals
     .filter((e) => !e.passed)
     .map((e) => ({ type: e.evaluator.type, detail: e.detail }));
+
+  // Tear down the per-run scratch repo. Without this we'd leak one git
+  // repo per (agent, task) pair into /tmp on every bench. We wait until
+  // after evaluation so file_exists / file_contains checks can read it.
+  await rm(cwd, { recursive: true, force: true }).catch(() => {});
 
   return {
     ts: new Date().toISOString(),

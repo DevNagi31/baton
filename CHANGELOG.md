@@ -40,6 +40,19 @@ All notable changes to baton. Format follows [Keep a Changelog](https://keepacha
 - `init` now defaults `agents.cursor.enabled` to true.
 
 ### Fixed
+- Bench runner leaked one git scratch repo per (agent, task) run into
+  /tmp. The runner now `rm -rf`s the scratch repo after evaluators have
+  inspected it.
+- CodexDriver's tmp-dir cleanup was fire-and-forget, so a parent process
+  exiting before the rm completed left the dir behind. Cleanup is now
+  awaited synchronously.
+- `runTask` did not close the memory store on error paths — a thrown
+  driver or eval would leak the sqlite handle. Wrapped in try/finally.
+- `baton init` silently said "initialized" even when re-run on an
+  existing workspace, and didn't warn when run outside a git repo.
+  Now shows a warning if not in a git repo, lists which files were
+  created vs. kept, and prints "already initialized" when there's
+  nothing to do.
 - Eager import of `@modelcontextprotocol/sdk` was detaching the parent
   process's stdin and causing `claude -p` to spawn with no input. The
   SDK is now lazy-loaded only inside the `mcp` action.
