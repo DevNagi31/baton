@@ -60,6 +60,16 @@ export async function recallMemories(
   }
 }
 
+// Delete a memory by id. Returns true if a row was actually removed.
+export async function forgetMemory(id: number): Promise<boolean> {
+  const memory = await openMemory();
+  try {
+    return memory.delete(id);
+  } finally {
+    memory.close();
+  }
+}
+
 // Build a primer string suitable for `claude --append-system-prompt`,
 // `codex exec`, or just pasting into a fresh session. Pulls the most
 // relevant recent memories from one or all projects and formats them as

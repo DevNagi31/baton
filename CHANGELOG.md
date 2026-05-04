@@ -5,16 +5,24 @@ All notable changes to baton. Format follows [Keep a Changelog](https://keepacha
 ## [Unreleased]
 
 ### Added
-- Cross-cwd / cross-session resume: three new commands.
+- Cross-cwd / cross-session resume: five new commands.
   - `baton remember "<note>"` — save a checkpoint with optional --tags
     and --project; defaults to source="manual", project=basename(cwd).
   - `baton recall [query] [--project <name>] [--limit <n>]` — browse
     memories; ranks by semantic similarity when a query is given,
     reverse-chronological otherwise.
+  - `baton forget <id>` — delete a memory by id.
   - `baton continue [--from <project>] [--query <text>] [--limit <n>]` —
     builds a structured primer from recent memories suitable for pasting
     into a fresh Claude Code or Cursor session, or piping into
     `claude --append-system-prompt`.
+  - `baton log [--tail N]` — pretty-print the per-step JSONL log from
+    `.baton/log.jsonl` so you can inspect what each agent did and how
+    long it took without grepping JSON yourself.
+- Memory database is now global at `~/.baton/memory.db` (override via
+  the `BATON_HOME` env var) so `recall`, `continue`, and `forget` all
+  work from any cwd. Project scoping continues via the `project` column
+  on each memory row.
 - `baton bench` runs benchmark specs across one or more agents in
   isolated scratch repos. Five evaluator types: file_exists,
   file_contains, file_equals, exit_zero, max_files_changed. Per-run
@@ -40,6 +48,10 @@ All notable changes to baton. Format follows [Keep a Changelog](https://keepacha
   open-pipe-with-no-writes meant codex waited for input that never came.
   CodexDriver now passes `input: ""` so codex sees EOF immediately and
   proceeds with just the positional prompt.
+- Working-tree change detection used git status codes, which meant a
+  file already in "M" status before a run wasn't reported as changed
+  if the agent appended to it (status stayed "M"). git.ts now snapshots
+  by sha256 of file contents, so any actual change is detected.
 
 ### Verified
 - Three-vendor handoff with all three real CLIs: Claude → Codex → Cursor,

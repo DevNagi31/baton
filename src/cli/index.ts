@@ -135,6 +135,42 @@ program
   );
 
 program
+  .command("forget")
+  .description("Delete a memory by id. Pair with `baton recall` to find the id first.")
+  .argument("<id>", "Memory id (integer, as printed by `baton recall`)")
+  .action(async (idStr: string) => {
+    const id = parseInt(idStr, 10);
+    if (!Number.isInteger(id))
+      throw new Error(`baton forget: id must be an integer, got "${idStr}"`);
+    const { forgetMemory } = await import("../coordinator/recall.js");
+    const removed = await forgetMemory(id);
+    console.log(removed ? `[baton] removed memory id=${id}` : `[baton] no memory with id=${id}`);
+  });
+
+program
+  .command("log")
+  .description("Pretty-print the per-step JSONL log from .baton/log.jsonl in the current project.")
+  .option("--tail <n>", "Show only the last N entries", (v) => parseInt(v, 10))
+  .action(async (opts: { tail?: number }) => {
+    const { readLog } = await import("../coordinator/log.js");
+    const entries = await readLog(process.cwd(), { tail: opts.tail });
+    if (entries.length === 0) {
+      console.log("[baton] no log entries (run `baton run …` first)");
+      return;
+    }
+    for (const e of entries) {
+      const ok = e.exitCode === 0 ? "✓" : "✗";
+      const files = e.filesChanged.length === 0 ? "no files" : e.filesChanged.join(", ");
+      console.log(
+        `${ok} ${e.ts}  [${e.agent}] ${(e.durationMs / 1000).toFixed(1)}s  ${files}`
+      );
+      console.log(`   ${e.prompt}`);
+      if (e.resultPreview) console.log(`   → ${e.resultPreview.replace(/\s+/g, " ").slice(0, 200)}`);
+      console.log("");
+    }
+  });
+
+program
   .command("continue")
   .description(
     "Generate a continuation primer from recent memories. Print it to stdout (or pipe into `claude --append-system-prompt -` to launch a session pre-loaded with prior context). Solves the 'session doesn't follow me across cwd' problem."

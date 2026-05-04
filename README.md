@@ -63,15 +63,23 @@ baton remember "decided to use sqlite over pgvector for the memory layer" \
 # Browse what you've saved. With a query, ranks by semantic similarity.
 baton recall "what database does this project use"
 
+# Delete a memory by id (use the id printed by `baton recall`).
+baton forget 12
+
 # Build a primer of recent activity, ready to paste into a fresh session.
 baton continue --from baton
 
 # Or pipe directly into a new Claude Code session pre-loaded with the primer:
 baton continue --from baton | xargs -0 -I {} claude --append-system-prompt {}
+
+# Inspect the run log (per-step, JSONL parsed and pretty-printed).
+baton log --tail 5
 ```
 
-Memory is keyed by project (default: basename of the cwd), so `baton recall
---project foo` works from any directory. The same `memory.db` is consulted.
+Memory lives in a single global store at `~/.baton/memory.db` (override via
+`BATON_HOME`), keyed by project name on each row. So `baton recall --project
+foo` works from any directory; the per-project `.baton/` only holds context
+scratch, the run log, snapshots, and bench output.
 
 ---
 

@@ -6,6 +6,7 @@ import {
   rememberNote,
   recallMemories,
   buildContinuationPrimer,
+  forgetMemory,
 } from "../coordinator/recall.js";
 
 // Force the deterministic embedder for all tests in this file so they
@@ -92,6 +93,17 @@ describe("recallMemories", () => {
     const items = await recallMemories(cwd, { project: "alpha", limit: 5 });
     expect(items).toHaveLength(1);
     expect(items[0].project).toBe("alpha");
+  });
+});
+
+describe("forgetMemory", () => {
+  it("removes the matching memory and returns true", async () => {
+    const cwd = await fixture();
+    const m = await rememberNote(cwd, "doomed");
+    expect(await forgetMemory(m.id)).toBe(true);
+    expect(await forgetMemory(m.id)).toBe(false);
+    const remaining = await recallMemories(cwd);
+    expect(remaining).toHaveLength(0);
   });
 });
 

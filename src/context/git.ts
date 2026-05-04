@@ -1,33 +1,60 @@
 import { execa } from "execa";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 
 export type WorkingTreeSnapshot = {
-  // Map of relative file path to its sha256 (or "absent" if file did not exist).
-  // Keyed by every file under git's tracking PLUS untracked-but-not-ignored.
-  status: Map<string, string>;
+  // Map of relative file path → sha256 of its content (or "absent" if the
+  // file does not exist). Hashing rather than just recording git status
+  // codes is necessary because the same status code (e.g. "M") can hide
+  // additional modifications between two snapshots — which was the bug
+  // that caused baton run to report "no files changed" after codex
+  // appended to an already-dirty trifecta.txt.
+  hashes: Map<string, string>;
 };
 
-// We use git's own machinery rather than walking the filesystem because git
-// already knows what to ignore. `git status --porcelain=v1 -z` plus
-// `git ls-files -z` gives us the set we care about.
+// We enumerate the file set via git so .gitignore is respected, then hash
+// each file's content for the actual diff signal.
 export async function snapshot(cwd: string): Promise<WorkingTreeSnapshot> {
-  const { stdout } = await execa(
+  const paths = await listFiles(cwd);
+  const hashes = new Map<string, string>();
+  await Promise.all(
+    paths.map(async (rel) => {
+      hashes.set(rel, await hashFile(join(cwd, rel)));
+    })
+  );
+  return { hashes };
+}
+
+async function listFiles(cwd: string): Promise<string[]> {
+  // Tracked files
+  const tracked = await execa("git", ["ls-files", "-z"], {
+    cwd,
+    reject: false,
+  });
+  // Untracked-not-ignored files
+  const untracked = await execa(
     "git",
-    ["status", "--porcelain=v1", "-uall", "-z"],
+    ["ls-files", "--others", "--exclude-standard", "-z"],
     { cwd, reject: false }
   );
-  const status = new Map<string, string>();
-  if (!stdout) return { status };
-  // -z separates entries with NUL; rename entries take 2 NULs but for v1 here we
-  // only care about the path side, not the diff content.
-  const entries = stdout.split("\0").filter(Boolean);
-  for (const e of entries) {
-    // Format: "XY path"
-    if (e.length < 4) continue;
-    const code = e.slice(0, 2);
-    const path = e.slice(3);
-    status.set(path, code);
+  const out = new Set<string>();
+  for (const part of String(tracked.stdout).split("\0")) {
+    if (part) out.add(part);
   }
-  return { status };
+  for (const part of String(untracked.stdout).split("\0")) {
+    if (part) out.add(part);
+  }
+  return [...out];
+}
+
+async function hashFile(path: string): Promise<string> {
+  try {
+    const buf = await readFile(path);
+    return "sha256:" + createHash("sha256").update(buf).digest("hex");
+  } catch {
+    return "absent";
+  }
 }
 
 export type ChangedFile = {
@@ -40,26 +67,27 @@ export async function changedSince(
   before: WorkingTreeSnapshot
 ): Promise<ChangedFile[]> {
   const after = await snapshot(cwd);
-  const all = new Set<string>([...before.status.keys(), ...after.status.keys()]);
+  const all = new Set<string>([
+    ...before.hashes.keys(),
+    ...after.hashes.keys(),
+  ]);
   const out: ChangedFile[] = [];
   for (const path of all) {
-    const a = after.status.get(path);
-    const b = before.status.get(path);
-    if (a === b) continue; // unchanged status code => no new change since snapshot
-    out.push({ path, status: classify(a) });
+    const a = after.hashes.get(path);
+    const b = before.hashes.get(path);
+    if (a === b) continue;
+    out.push({ path, status: classify(a, b) });
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-function classify(code: string | undefined): ChangedFile["status"] {
-  if (!code) return "other";
-  const c = code.trim();
-  if (c === "??") return "untracked";
-  if (c.includes("A")) return "added";
-  if (c.includes("D")) return "deleted";
-  if (c.includes("R")) return "renamed";
-  if (c.includes("M")) return "modified";
-  return "other";
+function classify(
+  after: string | undefined,
+  before: string | undefined
+): ChangedFile["status"] {
+  if (!before && after) return "added";
+  if (before && !after) return "deleted";
+  return "modified";
 }
 
 export async function isGitRepo(cwd: string): Promise<boolean> {

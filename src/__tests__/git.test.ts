@@ -37,7 +37,8 @@ describe("git helpers", () => {
     await writeFile(join(dir, "new.txt"), "hello\n");
     const changed = await changedSince(dir, before);
     expect(changed.map((c) => c.path)).toEqual(["new.txt"]);
-    expect(changed[0].status).toBe("untracked");
+    // Hashing-based diff classifies "appeared since snapshot" as "added".
+    expect(changed[0].status).toBe("added");
   });
 
   it("detects a modified file via changedSince", async () => {
