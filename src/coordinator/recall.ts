@@ -1,10 +1,11 @@
-import { join, basename } from "node:path";
+import { basename } from "node:path";
 import { MemoryStore, type Memory, type MemoryHit } from "../memory/store.js";
 import { HashEmbedder } from "../memory/embeddings.js";
+import { getMemoryDbDir } from "../memory/location.js";
 
-function openMemory(cwd: string): Promise<MemoryStore> {
+function openMemory(): Promise<MemoryStore> {
   return MemoryStore.open({
-    batonDir: join(cwd, ".baton"),
+    batonDir: getMemoryDbDir(),
     embedder:
       process.env.BATON_TEST_HASH_EMBEDDER === "1"
         ? new HashEmbedder(64)
@@ -22,7 +23,7 @@ export async function rememberNote(
   opts: { tags?: string[]; project?: string | null } = {}
 ): Promise<Memory> {
   if (!text.trim()) throw new Error("baton remember: note text is empty");
-  const memory = await openMemory(cwd);
+  const memory = await openMemory();
   try {
     return await memory.add(text, {
       tags: opts.tags ?? ["manual"],
@@ -44,7 +45,7 @@ export async function recallMemories(
     limit?: number;
   } = {}
 ): Promise<MemoryHit[] | Memory[]> {
-  const memory = await openMemory(cwd);
+  const memory = await openMemory();
   try {
     const limit = opts.limit ?? 10;
     if (opts.query?.trim()) {
@@ -72,7 +73,7 @@ export async function buildContinuationPrimer(
   } = {}
 ): Promise<string> {
   const limit = opts.limit ?? 10;
-  const memory = await openMemory(cwd);
+  const memory = await openMemory();
   try {
     let items: (Memory | MemoryHit)[];
     if (opts.query?.trim()) {

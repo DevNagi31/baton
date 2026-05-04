@@ -243,7 +243,8 @@ program
     "Directory holding memory.db (defaults to ./.baton)"
   )
   .action(async (opts: { batonDir?: string }) => {
-    const batonDir = opts.batonDir ?? join(process.cwd(), ".baton");
+    const { getMemoryDbDir } = await import("../memory/location.js");
+    const batonDir = opts.batonDir ?? getMemoryDbDir();
     // Note: log to stderr only — stdout is the MCP transport channel.
     console.error(`[baton mcp] starting memory server at ${batonDir}`);
     const { startMemoryMcpServer } = await import(

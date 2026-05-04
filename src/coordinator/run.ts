@@ -7,6 +7,7 @@ import { loadConfig, type Config } from "./config.js";
 import type { Driver, DriverId } from "../drivers/types.js";
 import { MemoryStore } from "../memory/store.js";
 import { HashEmbedder } from "../memory/embeddings.js";
+import { getMemoryDbDir } from "../memory/location.js";
 import { join, basename } from "node:path";
 
 export type RunOptions = {
@@ -34,11 +35,11 @@ export async function runTask(
   const batonDir = join(cwd, ".baton");
   const store = new ContextStore(batonDir);
 
-  // Open the memory store. Coordinator-side reads/writes go through this,
-  // so even if the agent CLIs aren't yet wired to the memory MCP they
-  // still benefit from prior context surfacing through the prompt.
+  // Memory is global (~/.baton/memory.db) so it persists across projects
+  // and is reachable by `baton recall --project <other>` from any cwd.
+  // Per-project .baton/ still holds context.md, log.jsonl, and snapshots.
   const memory = await MemoryStore.open({
-    batonDir,
+    batonDir: getMemoryDbDir(),
     embedder:
       process.env.BATON_TEST_HASH_EMBEDDER === "1"
         ? new HashEmbedder(64)

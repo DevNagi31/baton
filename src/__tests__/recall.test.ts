@@ -9,18 +9,28 @@ import {
 } from "../coordinator/recall.js";
 
 // Force the deterministic embedder for all tests in this file so they
-// don't trigger the ONNX model download.
-const ORIGINAL_FLAG = process.env.BATON_TEST_HASH_EMBEDDER;
-beforeEach(() => {
+// don't trigger the ONNX model download. Also point BATON_HOME at a
+// per-test temp dir so the global memory store is isolated across tests
+// and doesn't touch the user's real ~/.baton.
+const ORIGINAL_HASH = process.env.BATON_TEST_HASH_EMBEDDER;
+const ORIGINAL_HOME = process.env.BATON_HOME;
+beforeEach(async () => {
   process.env.BATON_TEST_HASH_EMBEDDER = "1";
+  const home = await mkdtemp(join(tmpdir(), "baton-home-"));
+  process.env.BATON_HOME = home;
 });
 afterEach(() => {
-  if (ORIGINAL_FLAG === undefined)
-    delete process.env.BATON_TEST_HASH_EMBEDDER;
-  else process.env.BATON_TEST_HASH_EMBEDDER = ORIGINAL_FLAG;
+  if (ORIGINAL_HASH === undefined) delete process.env.BATON_TEST_HASH_EMBEDDER;
+  else process.env.BATON_TEST_HASH_EMBEDDER = ORIGINAL_HASH;
+  if (ORIGINAL_HOME === undefined) delete process.env.BATON_HOME;
+  else process.env.BATON_HOME = ORIGINAL_HOME;
 });
 
 async function fixture(): Promise<string> {
+  // The cwd still matters because rememberNote derives the project name
+  // from basename(cwd) by default. The .baton/ subdirectory is no longer
+  // used for the memory db (it's at BATON_HOME) but other artifacts may
+  // still touch it.
   const dir = await mkdtemp(join(tmpdir(), "baton-recall-"));
   await mkdir(join(dir, ".baton"), { recursive: true });
   return dir;
